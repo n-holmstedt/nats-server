@@ -124,6 +124,7 @@ type fileStore struct {
 	sips    int
 	closed  bool
 	fip     bool
+	mset	*stream
 }
 
 // Represents a message store block and its data.
@@ -266,6 +267,16 @@ const (
 	// Time threshold to write index info for non FIFO cases
 	winfThresh = int64(500 * time.Millisecond)
 )
+
+//newFileStoreWithCreated(*fsCfg, mset.cfg, mset.created, prf, mset)
+func newStreamFileStoreWithCreated(fcfg FileStoreConfig, cfg StreamConfig, created time.Time, prf keyGen, mset *stream) (*fileStore, error) {
+	fs, err := newFileStoreWithCreated(fcfg, cfg, created, prf)
+	if err != nil {
+		return nil, err
+	}
+	fs.mset = mset
+	return fs, nil
+}
 
 func newFileStore(fcfg FileStoreConfig, cfg StreamConfig) (*fileStore, error) {
 	return newFileStoreWithCreated(fcfg, cfg, time.Now().UTC(), nil)
@@ -3084,6 +3095,9 @@ func (fs *fileStore) expireMsgs() {
 	fs.mu.RUnlock()
 	for sm, _ = fs.msgForSeq(0, &smv); sm != nil && sm.ts <= minAge; sm, _ = fs.msgForSeq(0, &smv) {
 		fs.removeMsg(sm.seq, false, true)
+		if fs.mset != nil {
+			fs.mset.srv.sendInternalAccountMsg(fs.mset.jsa.account, fmt.Sprintf(JSMessageTTLExpired, fs.cfg.Name), sm.msg)
+		}
 	}
 
 	fs.mu.Lock()

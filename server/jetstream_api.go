@@ -228,6 +228,9 @@ const (
 	// jsFlowControl is for FC responses.
 	jsFlowControl = "$JS.FC.%s.%s.*"
 
+	// JSMessageTTLExpired is a prefix for TTL expired events in a stream
+	JSMessageTTLExpired = "$JS.EVENT.TTL.EXPIRED.%s"
+
 	// JSAdvisoryPrefix is a prefix for all JetStream advisories.
 	JSAdvisoryPrefix = "$JS.EVENT.ADVISORY"
 

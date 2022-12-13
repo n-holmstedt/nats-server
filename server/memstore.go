@@ -32,6 +32,16 @@ type memStore struct {
 	scb       StorageUpdateHandler
 	ageChk    *time.Timer
 	consumers int
+	mset  	  *stream
+}
+
+func newStreamMemStore(cfg *StreamConfig, mset *stream) (*memStore, error) {
+	ms, err := newMemStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	ms.mset = mset
+	return ms, nil
 }
 
 func newMemStore(cfg *StreamConfig) (*memStore, error) {
@@ -421,6 +431,10 @@ func (ms *memStore) expireMsgs() {
 	for {
 		if sm, ok := ms.msgs[ms.state.FirstSeq]; ok && sm.ts <= minAge {
 			ms.deleteFirstMsgOrPanic()
+			// Send TTL Expired event to stream account.
+			if ms.mset != nil {
+				ms.mset.srv.sendInternalAccountMsg(ms.mset.jsa.account, fmt.Sprintf(JSMessageTTLExpired, ms.cfg.Name), sm.msg)
+			}
 		} else {
 			if !ok {
 				if ms.ageChk != nil {

@@ -3245,7 +3245,7 @@ func (mset *stream) setupStore(fsCfg *FileStoreConfig) error {
 
 	switch mset.cfg.Storage {
 	case MemoryStorage:
-		ms, err := newMemStore(&mset.cfg)
+		ms, err := newStreamMemStore(&mset.cfg, mset)
 		if err != nil {
 			mset.mu.Unlock()
 			return err
@@ -3258,7 +3258,7 @@ func (mset *stream) setupStore(fsCfg *FileStoreConfig) error {
 			// We are encrypted here, fill in correct cipher selection.
 			fsCfg.Cipher = s.getOpts().JetStreamCipher
 		}
-		fs, err := newFileStoreWithCreated(*fsCfg, mset.cfg, mset.created, prf)
+		fs, err := newStreamFileStoreWithCreated(*fsCfg, mset.cfg, mset.created, prf, mset)
 		if err != nil {
 			mset.mu.Unlock()
 			return err
