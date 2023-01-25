@@ -2776,7 +2776,7 @@ func TestJetStreamClusterMixedModeColdStartPrune(t *testing.T) {
 }
 
 func TestJetStreamClusterMirrorAndSourceCrossNonNeighboringDomain(t *testing.T) {
-	storeDir1 := createDir(t, JetStreamStoreDir)
+	storeDir1 := t.TempDir()
 	conf1 := createConfFile(t, []byte(fmt.Sprintf(`
 		listen: 127.0.0.1:-1
 		jetstream: {max_mem_store: 256MB, max_file_store: 256MB, domain: domain1, store_dir: '%s'}
@@ -2792,7 +2792,7 @@ func TestJetStreamClusterMirrorAndSourceCrossNonNeighboringDomain(t *testing.T) 
 	`, storeDir1)))
 	s1, _ := RunServerWithConfig(conf1)
 	defer s1.Shutdown()
-	storeDir2 := createDir(t, JetStreamStoreDir)
+	storeDir2 := t.TempDir()
 	conf2 := createConfFile(t, []byte(fmt.Sprintf(`
 		listen: 127.0.0.1:-1
 		jetstream: {max_mem_store: 256MB, max_file_store: 256MB, domain: domain2, store_dir: '%s'}
@@ -2809,7 +2809,7 @@ func TestJetStreamClusterMirrorAndSourceCrossNonNeighboringDomain(t *testing.T) 
 	`, storeDir2, s1.opts.LeafNode.Port, s1.opts.LeafNode.Port)))
 	s2, _ := RunServerWithConfig(conf2)
 	defer s2.Shutdown()
-	storeDir3 := createDir(t, JetStreamStoreDir)
+	storeDir3 := t.TempDir()
 	conf3 := createConfFile(t, []byte(fmt.Sprintf(`
 		listen: 127.0.0.1:-1
 		jetstream: {max_mem_store: 256MB, max_file_store: 256MB, domain: domain3, store_dir: '%s'}
@@ -2889,10 +2889,7 @@ func TestJetStreamClusterMirrorAndSourceCrossNonNeighboringDomain(t *testing.T) 
 }
 
 func TestJetStreamClusterSeal(t *testing.T) {
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "JSC", 3)
@@ -3404,10 +3401,7 @@ func TestJetStreamClusterAccountInfoForSystemAccount(t *testing.T) {
 }
 
 func TestJetStreamClusterListFilter(t *testing.T) {
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "R3S", 3)
@@ -3460,10 +3454,7 @@ func TestJetStreamClusterListFilter(t *testing.T) {
 }
 
 func TestJetStreamClusterConsumerUpdates(t *testing.T) {
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "JSC", 5)
@@ -4228,10 +4219,7 @@ func TestJetStreamClusterRedeliverBackoffs(t *testing.T) {
 }
 
 func TestJetStreamClusterConsumerUpgrade(t *testing.T) {
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "JSC", 3)
@@ -4257,10 +4245,7 @@ func TestJetStreamClusterConsumerUpgrade(t *testing.T) {
 }
 
 func TestJetStreamClusterAddConsumerWithInfo(t *testing.T) {
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "JSC", 3)
@@ -4714,10 +4699,7 @@ func TestJetStreamClusterMirrorOrSourceNotActiveReporting(t *testing.T) {
 }
 
 func TestJetStreamClusterStreamAdvisories(t *testing.T) {
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "JSC", 3)
@@ -4898,7 +4880,7 @@ func TestJetStreamClusterDuplicateRoutesDisruptJetStreamMetaGroup(t *testing.T) 
 
 	rports := []int{22208, 22209, 22210}
 	for i, p := range rports {
-		sname, sd := fmt.Sprintf("S%d", i+1), createDir(t, JetStreamStoreDir)
+		sname, sd := fmt.Sprintf("S%d", i+1), t.TempDir()
 		cf := fmt.Sprintf(tmpl, sname, sd, p, rports[0], rports[1], rports[2], rports[0], rports[1], rports[2])
 		s, o := RunServerWithConfig(createConfFile(t, []byte(cf)))
 		c.servers, c.opts = append(c.servers, s), append(c.opts, o)
@@ -5332,10 +5314,7 @@ func TestJetStreamClusterMirrorSourceLoop(t *testing.T) {
 	}
 
 	t.Run("Single", func(t *testing.T) {
-		s := RunBasicJetStreamServer()
-		if config := s.JetStreamConfig(); config != nil {
-			defer removeDir(t, config.StoreDir)
-		}
+		s := RunBasicJetStreamServer(t)
 		defer s.Shutdown()
 		test(t, s, 1)
 	})
@@ -6086,6 +6065,34 @@ func TestJetStreamClusterLeafNodeSPOFMigrateLeaders(t *testing.T) {
 		_, err = nc.Request(dsubj, nil, 500*time.Millisecond)
 		return err
 	})
+
+	nc, _ = jsClientConnect(t, lnc.randomServer())
+	defer nc.Close()
+
+	// Now make sure the consumer, or any other asset, can not become a leader on this node while the leafnode
+	// is disconnected.
+	csd := fmt.Sprintf(JSApiConsumerLeaderStepDownT, "TEST", "d")
+	for i := 0; i < 10; i++ {
+		nc.Request(csd, nil, time.Second)
+		lnc.waitOnConsumerLeader(globalAccountName, "TEST", "d")
+		if lnc.consumerLeader(globalAccountName, "TEST", "d") == cl {
+			t.Fatalf("Consumer leader should not migrate to server without a leafnode connection")
+		}
+	}
+
+	// Now make sure once leafnode is back we can have leaders on this server.
+	cl.reEnableLeafnodes()
+	checkLeafNodeConnectedCount(t, cl, 2)
+
+	// Make sure we can migrate back to this server now that we are connected.
+	checkFor(t, 5*time.Second, 100*time.Millisecond, func() error {
+		nc.Request(csd, nil, time.Second)
+		lnc.waitOnConsumerLeader(globalAccountName, "TEST", "d")
+		if lnc.consumerLeader(globalAccountName, "TEST", "d") == cl {
+			return nil
+		}
+		return fmt.Errorf("Not this server yet")
+	})
 }
 
 func TestJetStreamClusterStreamCatchupWithTruncateAndPriorSnapshot(t *testing.T) {
@@ -6411,10 +6418,7 @@ func TestJetStreamClusterRePublishUpdateNotSupported(t *testing.T) {
 		expectFailUpdate()
 	}
 
-	s := RunBasicJetStreamServer()
-	if config := s.JetStreamConfig(); config != nil {
-		defer removeDir(t, config.StoreDir)
-	}
+	s := RunBasicJetStreamServer(t)
 	defer s.Shutdown()
 
 	c := createJetStreamClusterExplicit(t, "JSC", 3)

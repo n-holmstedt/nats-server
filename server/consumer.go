@@ -306,6 +306,9 @@ type consumer struct {
 
 	// Ack queue
 	ackMsgs *ipQueue
+
+	// For stream signaling.
+	sigSub *subscription
 }
 
 type proposal struct {
@@ -1062,6 +1065,9 @@ func (o *consumer) setLeader(isLeader bool) {
 		// Snapshot initial info.
 		o.infoWithSnap(true)
 
+		// Register as a leader with our parent stream.
+		mset.setConsumerAsLeader(o)
+
 		// Now start up Go routine to deliver msgs.
 		go o.loopAndGatherMsgs(qch)
 
@@ -1107,14 +1113,16 @@ func (o *consumer) setLeader(isLeader bool) {
 			stopAndClearTimer(&o.gwdtmr)
 		}
 		o.mu.Unlock()
+
+		// Unregister as a leader with our parent stream.
+		if mset != nil {
+			mset.removeConsumerAsLeader(o)
+		}
 	}
 }
 
 func (o *consumer) handleClusterConsumerInfoRequest(sub *subscription, c *client, _ *Account, subject, reply string, msg []byte) {
-	o.mu.RLock()
-	sysc := o.sysc
-	o.mu.RUnlock()
-	sysc.sendInternalMsg(reply, _EMPTY_, nil, o.info())
+	o.infoWithSnapAndReply(false, reply)
 }
 
 // Lock should be held.
@@ -2191,23 +2199,27 @@ func (o *consumer) info() *ConsumerInfo {
 }
 
 func (o *consumer) infoWithSnap(snap bool) *ConsumerInfo {
-	o.mu.RLock()
+	return o.infoWithSnapAndReply(snap, _EMPTY_)
+}
+
+func (o *consumer) infoWithSnapAndReply(snap bool, reply string) *ConsumerInfo {
+	o.mu.Lock()
 	mset := o.mset
 	if mset == nil || mset.srv == nil {
-		o.mu.RUnlock()
+		o.mu.Unlock()
 		return nil
 	}
 	js := o.js
-	o.mu.RUnlock()
-
 	if js == nil {
+		o.mu.Unlock()
 		return nil
 	}
 
-	ci := js.clusterInfo(o.raftGroup())
-
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	// Capture raftGroup.
+	var rg *raftGroup
+	if o.ca != nil {
+		rg = o.ca.Group
+	}
 
 	cfg := o.cfg
 	info := &ConsumerInfo{
@@ -2227,7 +2239,6 @@ func (o *consumer) infoWithSnap(snap bool) *ConsumerInfo {
 		NumRedelivered: len(o.rdc),
 		NumPending:     o.streamNumPending(),
 		PushBound:      o.isPushMode() && o.active,
-		Cluster:        ci,
 	}
 	// Adjust active based on non-zero etc. Also make UTC here.
 	if !o.ldt.IsZero() {
@@ -2247,6 +2258,18 @@ func (o *consumer) infoWithSnap(snap bool) *ConsumerInfo {
 	// If we were asked to snapshot do so here.
 	if snap {
 		o.ici = info
+	}
+	sysc := o.sysc
+	o.mu.Unlock()
+
+	// Do cluster.
+	if rg != nil {
+		info.Cluster = js.clusterInfo(rg)
+	}
+
+	// If we have a reply subject send the response here.
+	if reply != _EMPTY_ && sysc != nil {
+		sysc.sendInternalMsg(reply, _EMPTY_, nil, info)
 	}
 
 	return info
@@ -4310,4 +4333,45 @@ func (o *consumer) account() *Account {
 	a := o.acc
 	o.mu.RUnlock()
 	return a
+}
+
+func (o *consumer) signalSub() *subscription {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if o.sigSub != nil {
+		return o.sigSub
+	}
+
+	subject := o.cfg.FilterSubject
+	if subject == _EMPTY_ {
+		subject = fwcs
+	}
+	sub := &subscription{subject: []byte(subject), icb: o.processStreamSignal}
+	o.sigSub = sub
+	return sub
+}
+
+// This is what will be called when our parent stream wants to kick us regarding a new message.
+// We know that we are the leader and that this subject matches us by how the parent handles registering
+// us with the signaling sublist.
+// We do need the sequence of the message however and we use the msg as the encoded seq.
+func (o *consumer) processStreamSignal(_ *subscription, _ *client, _ *Account, subject, _ string, seqb []byte) {
+	var le = binary.LittleEndian
+	seq := le.Uint64(seqb)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.mset == nil {
+		return
+	}
+	if seq > o.npcm {
+		o.npc++
+	}
+	if seq < o.sseq {
+		return
+	}
+	if o.isPushMode() && o.active || o.isPullMode() && !o.waiting.isEmpty() {
+		o.signalNewMessages()
+	}
 }
